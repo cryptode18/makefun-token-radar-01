@@ -1,5 +1,6 @@
 import { cpSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-board.ts';
 import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
 
@@ -18,7 +19,8 @@ function snapshotPath(input: string): string {
   return statSync(absolute).isDirectory() ? join(absolute, 'snapshot.json') : absolute;
 }
 
-const input = option('--input', '/input');
+const botDir = resolve(fileURLToPath(new URL('.', import.meta.url)));
+const input = option('--input', process.env.MAKEFUN_INPUT_DIR || '/input');
 const outputDefault = process.env.MAKEFUN_OUTPUT_DIR || '/output';
 const outDir = resolve(option('--output', outputDefault));
 const snapshot = parseSnapshot(readFileSync(snapshotPath(input), 'utf8'));
@@ -26,8 +28,8 @@ const radar = buildRadar(snapshot);
 const issue = boardIssue(radar.rows, snapshot);
 if (issue) throw new Error(`refusing to write invalid board: ${issue}`);
 
-cpSync('dashboard', join(outDir, 'dashboard'), { recursive: true });
-cpSync('screenshots', join(outDir, 'screenshots'), { recursive: true });
+cpSync(join(botDir, 'dashboard'), join(outDir, 'dashboard'), { recursive: true });
+cpSync(join(botDir, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
 writeFileSync(
   join(outDir, 'board.json'),
   `${JSON.stringify({ rows: radar.rows }, null, 2)}\n`,
