@@ -1,3 +1,41 @@
-import {copyFileSync,existsSync,mkdirSync,readdirSync,readFileSync,statSync,writeFileSync} from 'node:fs';import{join}from'node:path';import{fileURLToPath}from'node:url';import{parseSnapshot,buildRadar,boardIssue,dataScript}from'./lib/model.ts';import{buildDossier}from'./vendor/makefun-board.ts';
-const here=fileURLToPath(new URL('.',import.meta.url));const arg=(n:string,d:string)=>{const i=process.argv.indexOf('--'+n);return i>=0?process.argv[i+1]||d:process.argv.find(x=>x.startsWith('--'+n+'='))?.slice(n.length+3)||d};const input=arg('input','/input'),file=input.endsWith('.json')?input:join(input,'snapshot.json'),out=arg('output',process.env.MAKEFUN_OUTPUT_DIR||'/output');
-const snap=parseSnapshot(readFileSync(file,'utf8')),built=buildRadar(snap),issue=boardIssue(built.board,snap);if(issue)throw Error('gate refusal: '+issue);mkdirSync(out,{recursive:true});writeFileSync(join(out,'board.json'),JSON.stringify({rows:built.board})+'\n');writeFileSync(join(out,'data.js'),dataScript(built.radar));function cp(from:string,to:string){mkdirSync(to,{recursive:true});for(const n of readdirSync(from)){const a=join(from,n);if(statSync(a).isFile())copyFileSync(a,join(to,n))}}cp(join(here,'dashboard'),join(out,'dashboard'));cp(join(here,'screenshots'),join(out,'screenshots'));writeFileSync(join(out,'dossier.json'),buildDossier(out,{text_max_bytes:65536,screenshots:{max:4,max_bytes:524288},dashboard:{max_files:400,max_bytes:4194304}}));console.log(`radar-2: ${built.board.length} rows, ${snap.watchlist.length} watchlist, ${built.radar.early_size} early`);
+import { cpSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { buildDossier } from './vendor/makefun-board.ts';
+import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+
+/** Read CLI flags without a dependency so Node 24 can execute this file directly. */
+function option(name: string, fallback: string): string {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return fallback;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${name} requires a path`);
+  return value;
+}
+
+function snapshotPath(input: string): string {
+  const absolute = resolve(input);
+  if (!existsSync(absolute)) throw new Error(`input does not exist: ${absolute}`);
+  return statSync(absolute).isDirectory() ? join(absolute, 'snapshot.json') : absolute;
+}
+
+const input = option('--input', '/input');
+const outputDefault = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const outDir = resolve(option('--output', outputDefault));
+const snapshot = parseSnapshot(readFileSync(snapshotPath(input), 'utf8'));
+const radar = buildRadar(snapshot);
+const issue = boardIssue(radar.rows, snapshot);
+if (issue) throw new Error(`refusing to write invalid board: ${issue}`);
+
+cpSync('dashboard', join(outDir, 'dashboard'), { recursive: true });
+cpSync('screenshots', join(outDir, 'screenshots'), { recursive: true });
+writeFileSync(
+  join(outDir, 'board.json'),
+  `${JSON.stringify({ rows: radar.rows }, null, 2)}\n`,
+);
+writeFileSync(join(outDir, 'data.js'), dataScript(radar));
+writeFileSync(join(outDir, 'dossier.json'), buildDossier(outDir, {
+  text_max_bytes: 65536,
+  screenshots: { max: 4, max_bytes: 524288 },
+  dashboard: { max_files: 400, max_bytes: 4194304 },
+}));
+console.log(`board rows=${radar.board_size} watchlist=${radar.watchlist_size} early=${radar.early_size}`);
